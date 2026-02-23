@@ -53,7 +53,7 @@ _INVALID_USER_RE = re.compile(
 
 def _coerce_timestamp(series: pd.Series) -> pd.Series:
     """Best-effort timestamp parse; returns NaT on failure."""
-    return pd.to_datetime(series, infer_datetime_format=True, errors="coerce", utc=False)
+    return pd.to_datetime(series, errors="coerce", utc=False)
 
 
 def _normalize_status(val: str) -> str:
