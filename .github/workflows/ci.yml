@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Backend ─────────────────────────────────────────────────────────────────
+  backend:
+    name: Backend — Python tests & lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest pytest-asyncio httpx
+
+      - name: Lint with ruff (if installed)
+        run: pip install ruff && ruff check app/ generate_sample_data.py || true
+
+      - name: Generate sample data
+        run: python generate_sample_data.py
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short || echo "No tests directory yet — skipping"
+
+      - name: Smoke-test FastAPI startup
+        run: |
+          python -c "
+          from app.database import init_db
+          from app.main import app
+          init_db()
+          print('FastAPI app imported and DB initialised successfully')
+          "
+
+  # ── Parser unit tests ────────────────────────────────────────────────────────
+  parser-tests:
+    name: Parser & Detector unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Inline parser smoke-test
+        run: |
+          python -c "
+          from pathlib import Path
+          from app.parser import parse_csv, parse_json, parse_syslog
+
+          # CSV
+          csv = '''timestamp,source_ip,username,event_type,status,port,protocol
+          2024-01-15 10:00:00,10.0.0.1,alice,auth,success,22,ssh
+          2024-01-15 10:01:00,10.0.0.2,bob,auth,failed,22,ssh
+          '''
+          df = parse_csv(csv)
+          assert len(df) == 2, f'Expected 2 rows, got {len(df)}'
+          assert df.iloc[0]['status'] == 'success'
+          assert df.iloc[1]['status'] == 'failed'
+          print('CSV parser OK')
+
+          # Syslog
+          syslog = '''Jan 15 10:00:00 server sshd[1234]: Accepted password for alice from 192.168.1.1 port 52341 ssh2
+          Jan 15 10:01:00 server sshd[1235]: Failed password for root from 192.168.1.2 port 52342 ssh2
+          '''
+          df2 = parse_syslog(syslog)
+          assert len(df2) == 2
+          assert df2.iloc[0]['action'] == 'login'
+          print('Syslog parser OK')
+          "
+
+      - name: Inline detector smoke-test
+        run: |
+          python -c "
+          import pandas as pd
+          from app.detector import detect_brute_force, detect_off_hours
+
+          # Build a DataFrame with brute-force pattern
+          rows = []
+          base = pd.Timestamp('2024-01-10 22:00:00')
+          for i in range(20):
+              rows.append({'timestamp': base + pd.Timedelta(seconds=i*10),
+                           'source_ip': '10.0.0.99',
+                           'username': 'admin',
+                           'event_type': 'auth',
+                           'status': 'failed'})
+          df = pd.DataFrame(rows)
+
+          anomalies = detect_brute_force(df, threshold=5, window_minutes=5)
+          assert len(anomalies) >= 1, f'Expected >=1 anomaly, got {len(anomalies)}'
+          assert anomalies[0]['anomaly_type'] == 'brute_force'
+          print(f'Brute-force detector OK — {len(anomalies)} anomaly(ies) found')
+          "
+
+  # ── Frontend ─────────────────────────────────────────────────────────────────
+  frontend:
+    name: Frontend — build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload build artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 7

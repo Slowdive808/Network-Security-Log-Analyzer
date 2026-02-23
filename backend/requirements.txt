@@ -1,0 +1,16 @@
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+sqlalchemy>=2.0.0
+alembic>=1.13.0
+pandas>=2.1.0
+numpy>=1.26.0
+matplotlib>=3.8.0
+reportlab>=4.0.0
+python-multipart>=0.0.6
+aiofiles>=23.2.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+scipy>=1.11.0
+python-dateutil>=2.8.2
+ipaddress>=1.0.23
+Pillow>=10.0.0
